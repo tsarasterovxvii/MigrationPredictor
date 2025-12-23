@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# PERFORMANCE-OPTIMIZED VERSION - Fixes the "Base features used" hang
-
 import os
 import math
 import pickle
@@ -28,10 +25,6 @@ TOP_K_ARROWS = 5
 FALLBACK_ISO3 = ["USA", "CAN", "GBR", "AUS", "NZL"]
 DPRK_ISO3 = "PRK"
 
-# ═══════════════════════════════════════════════════════════════════════════
-# SKIP SLOW PARTS ON FIRST RUN - QUICK SETUP
-# ═══════════════════════════════════════════════════════════════════════════
-
 BILAT_FILE = r"C:\Users\Tsar Aster17\Downloads\bilat_mig.csv"
 COUNTRIES_FILE = r"C:\Users\Tsar Aster17\Downloads\countries.csv"
 CLEANED_DIR = r"C:\Users\Tsar Aster17\PycharmProjects\MigrationPredictor\cleaned"
@@ -56,7 +49,6 @@ MACRO_FUTURE_FILE = CACHE_DIR / "macro_future_preds.pkl"
 QUARTERLY_PRED_FILE = CACHE_DIR / "predictions_quarterly_2026_2050.pkl"
 QUARTERLY_PRED_CSV = os.path.join(EXPORT_DIR, "predictions_quarterly_2026_2050.csv")
 
-# QUICK EXIT: Check if everything is cached already
 if (MODEL_FILE.exists() and MACRO_MODELS_FILE.exists() and
         MACRO_FUTURE_FILE.exists() and QUARTERLY_PRED_FILE.exists()):
     print("✓ All cache files exist. Skipping training and jumping to UI...")
@@ -75,7 +67,6 @@ if (MODEL_FILE.exists() and MACRO_MODELS_FILE.exists() and
 
     print("✓ All caches loaded successfully!")
 
-    # Load centroids for UI
     centroids = pd.read_csv(COUNTRIES_FILE)
 
 
@@ -102,14 +93,12 @@ if (MODEL_FILE.exists() and MACRO_MODELS_FILE.exists() and
 
     print(f"✓ UI ready with {len(country_coords)} countries")
 
-    # SKIP TO UI SECTION
     SKIP_TO_UI = True
 else:
     SKIP_TO_UI = False
     print("Cache incomplete - running full training...")
 
 if not SKIP_TO_UI:
-    # Original code continues here
     START_YEAR = 2026
     END_YEAR = 2050
     QUARTERS = ["Q1", "Q2", "Q3", "Q4"]
@@ -172,8 +161,6 @@ if not SKIP_TO_UI:
 
         return None
 
-
-    # FAST COUNTRY CACHING
     def create_country_name_to_iso3_cache():
         cache = {}
         manual_mappings = {
@@ -221,8 +208,6 @@ if not SKIP_TO_UI:
         except Exception:
             return None
 
-
-    # LOAD DATA
     safe_print("Loading countries/centroids...")
     centroids = pd.read_csv(COUNTRIES_FILE)
     centroids['ISO3'] = centroids['ISO'].apply(iso2_to_iso3)
@@ -255,7 +240,6 @@ if not SKIP_TO_UI:
         bilat = bilat[bilat['year0'] >= 2005].reset_index(drop=True)
         safe_print(f"✓ Filtered to 2005+: {len(bilat)} rows")
 
-    # LOAD MACROS
     safe_print("Loading macros...")
     macro_paths = {
         'gdp': CLEAN_GDP, 'gdp_percap': CLEAN_GDP_PC, 'population': CLEAN_POP,
@@ -277,8 +261,6 @@ if not SKIP_TO_UI:
             except Exception as e:
                 safe_print(f"⚠ Skipped {name}: {e}")
 
-
-    # COMPUTE DELTAS
     def compute_macro_deltas(df_macro):
         rows = []
         for iso, grp in df_macro.groupby('ISO3'):
@@ -304,7 +286,6 @@ if not SKIP_TO_UI:
         macro_deltas[name] = compute_macro_deltas(df)
         safe_print(f"✓ Deltas for {name}: {len(macro_deltas[name])} rows")
 
-    # TRAIN MACRO MODELS
     if MACRO_MODELS_FILE.exists() and MACRO_FUTURE_FILE.exists():
         safe_print("✓ Loading cached macro models...")
         with open(MACRO_MODELS_FILE, "rb") as f:
@@ -356,17 +337,12 @@ if not SKIP_TO_UI:
         with open(MACRO_FUTURE_FILE, "wb") as f:
             pickle.dump(macro_future_preds, f)
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # OPTIMIZED DELTA DATASET BUILDING (THIS WAS THE BOTTLENECK)
-    # ═══════════════════════════════════════════════════════════════════════════
-
     safe_print("Building training dataset (OPTIMIZED)...")
 
     base_candidates = ['year0', 'sd_drop_neg', 'sd_rev_neg', 'da_min_open', 'da_min_closed', 'da_pb_closed']
     base_feats = [c for c in base_candidates if c in bilat.columns]
     safe_print(f"Base features: {base_feats}")
 
-    # Pre-compute categoricals ONCE, not repeatedly
     bilat['orig_code'] = pd.factorize(bilat['orig'])[0]
     bilat['dest_code'] = pd.factorize(bilat['dest'])[0]
     if 'quarter_sin' not in bilat.columns:
@@ -374,7 +350,6 @@ if not SKIP_TO_UI:
     if 'quarter_cos' not in bilat.columns:
         bilat['quarter_cos'] = 1.0
 
-    # BUILD INDEX for fast macro lookups
     delta_index = {}
     for name, md in macro_deltas.items():
         delta_index[name] = {}
@@ -387,7 +362,6 @@ if not SKIP_TO_UI:
     delta_rows = []
     bilat_sorted = bilat.sort_values(['orig', 'dest', 'year0']).reset_index(drop=True)
 
-    # FAST iteration with groupby
     for (orig, dest), grp in bilat_sorted.groupby(['orig', 'dest'], sort=False):
         grp_sorted = grp.sort_values('year0').reset_index(drop=True)
         if len(grp_sorted) < 2:
@@ -402,7 +376,6 @@ if not SKIP_TO_UI:
 
             year_t = int(r0['year0'])
 
-            # Check macro availability ONCE per pair
             all_macro_ok = True
             for mname in macro_deltas.keys():
                 if (orig, year_t) not in delta_index[mname] or (dest, year_t) not in delta_index[mname]:
@@ -412,7 +385,6 @@ if not SKIP_TO_UI:
             if not all_macro_ok:
                 continue
 
-            # BUILD ROW
             row = {f: r0.get(f, np.nan) for f in base_feats}
             row.update({
                 'orig': orig, 'dest': dest,
@@ -423,7 +395,6 @@ if not SKIP_TO_UI:
                 'sample_year': int(r1['year0'])
             })
 
-            # ADD MACRO FEATURES
             for mname in macro_deltas.keys():
                 v_o = delta_index[mname].get((orig, year_t), None)
                 v_d = delta_index[mname].get((dest, year_t), None)
@@ -455,12 +426,10 @@ if not SKIP_TO_UI:
         safe_print(f"✓ Training features: {len(feature_cols)}")
     else:
         raise RuntimeError("No delta rows - cannot train!")
-
-    # CONTINUE WITH TRAINING (same as original)
+        
     delta_std = float(df_delta['target_delta_mig_rate'].std()) if len(df_delta) > 1 else 0.0
     delta_mean = float(df_delta['target_delta_mig_rate'].mean()) if len(df_delta) > 0 else 0.0
 
-    # SCALE CORRECTION
     scale_candidates = []
     if 'mig_count' in bilat.columns:
         for _, r in bilat_sorted.iterrows():
@@ -504,8 +473,6 @@ if not SKIP_TO_UI:
         SCALE_CORRECTION = 1.0
         safe_print(f"✓ SCALE_CORRECTION: {SCALE_CORRECTION} (default)")
 
-
-    # TRAIN MODEL
     def load_model_meta():
         if MODEL_FILE.exists() and MODEL_META_FILE.exists():
             try:
@@ -549,8 +516,6 @@ if not SKIP_TO_UI:
 
     trained_feature_order = model_meta.get('feature_cols', None)
 
-
-    # POPULATION HELPERS
     def interp_population(iso, year, quarter_idx):
         try:
             p_y = macro_future_preds.get('population', {}).get((iso, year), np.nan)
@@ -589,8 +554,6 @@ if not SKIP_TO_UI:
                 d = mean - limit
         return float(d)
 
-
-    # GENERATE PREDICTIONS
     if QUARTERLY_PRED_FILE.exists():
         safe_print("✓ Loading cached predictions...")
         with open(QUARTERLY_PRED_FILE, "rb") as f:
@@ -756,11 +719,6 @@ if not SKIP_TO_UI:
                 combined.to_csv(QUARTERLY_PRED_CSV, index=False)
                 safe_print(f"✓ CSV exported to {QUARTERLY_PRED_CSV}")
 
-
-# ═════════════════════════════════════════════════════════════════════════════
-# DASH UI (SAME FOR BOTH PATHS)
-# ═════════════════════════════════════════════════════════════════════════════
-
 def aggregate_for_display(df_future, current_year):
     """Aggregates migration data safely without returning None."""
     try:
@@ -803,7 +761,7 @@ def aggregate_for_display(df_future, current_year):
 
         pop = max(100_000.0, min(pop, 1_500_000_000.0))
         if iso in ["CHN", "IND"]:
-            pct = (net / pop) / 80.0  # Divided by 20, then converted to %
+            pct = (net / pop) / 80.0 
         else:
             pct = (net / pop) / 10.0
 
@@ -814,7 +772,7 @@ def aggregate_for_display(df_future, current_year):
     agg = pd.DataFrame(rows)
 
     if len(agg) > 0:
-        agg['norm'] = (agg['predicted_mig_pct'] / 40.0)  # -100→0, 0→0.5, +100→1
+        agg['norm'] = (agg['predicted_mig_pct'] / 40.0)
         agg['norm'] = np.clip(agg['norm'], -20.0, 20.0)
     else:
         agg['norm'] = 0.0
@@ -849,12 +807,12 @@ app.layout = html.Div([
 @app.callback(
     Output('clicked-countries', 'data'),
     Input('migration-map', 'clickData'),
-    Input('migration-map', 'relayoutData'),  # ← ADD THIS
+    Input('migration-map', 'relayoutData'), 
     State('clicked-countries', 'data')
 )
 def toggle_click(clickData, relayoutData, clicked):
-    if relayoutData and 'hover' in str(relayoutData):  # Mouse out
-        return []  # Clear hover
+    if relayoutData and 'hover' in str(relayoutData):
+        return [] 
     if clickData is None:
         return clicked
 
@@ -924,7 +882,6 @@ def update_map(slider_index, hoverData, clicked_countries):
     slider_index = int(min(max(0, slider_index), len(quarter_options) - 1))
     quarter_key = quarter_options[slider_index]
 
-    # Extract year from quarter key
     q, y = quarter_key.split()
     current_year = int(y)
 
@@ -932,8 +889,7 @@ def update_map(slider_index, hoverData, clicked_countries):
     df_future = df_future[~((df_future['orig'] == DPRK_ISO3) | (df_future['dest'] == DPRK_ISO3))].reset_index(drop=True)
 
     agg = aggregate_for_display(df_future, current_year)
-
-    # FIXED: Correct column selection
+    
     merged = centroids.set_index('ISO3').join(agg, how='left').reset_index()
     merged.loc[merged['ISO3'] == DPRK_ISO3, ['predicted_mig_pct', 'norm', 'net_mig_count']] = (None, None, None)
 
@@ -958,23 +914,22 @@ def update_map(slider_index, hoverData, clicked_countries):
             title='Net migration (%)',
             tickvals=[-10, 10],
             ticktext=['-10', '10']),
-        text=textvals,  # textvals = country names
-        customdata=customdata,  # customdata[:, 1] = migration percentage
+        text=textvals, 
+        customdata=customdata, 
         colorscale=colorscale_custom,
         colorbar_title='Predicted net migration (%)',
         marker_line_color='black',
         locationmode='ISO-3',
         hovertemplate='%{text}<br>Migration: %{customdata[1]:.2f}%<extra></extra>'
     ))
-    clicked_active = set(clicked_countries or [])  # PERMANENT clicks only
-    active = clicked_active.copy()  # Start with clicked countries
+    clicked_active = set(clicked_countries or []) 
+    active = clicked_active.copy() 
 
-    # TEMPORARY hover (doesn't persist)
     if hoverData and 'points' in hoverData:
         try:
             hp = hoverData['points'][0]
             hover_iso = hp.get('location') or hp.get('text')
-            if hover_iso and hover_iso not in clicked_active:  # Only if NOT already clicked
+            if hover_iso and hover_iso not in clicked_active:
                 active.add(str(hover_iso))
         except Exception:
             pass
@@ -1013,3 +968,4 @@ if __name__ == "__main__":
         app.run_server(debug=False, port=8050)
     except Exception:
         app.run(debug=False)
+
